@@ -21,11 +21,11 @@ NHL's public feed, so it keeps working season after season.
 ## Who gets these texts
 
 This is a personal, non-commercial project. The only recipients are the owner
-and a few family members and friends who asked in person to be added. Nobody
+and a few people the owner knows personally, each of whom asked in person to be added. Nobody
 can sign up online and no numbers are collected, shared, or sold. Each person
 gets at most one text on a day the Flyers or Stars play, and none otherwise.
 Message and data rates may apply. Reply `STOP` at any time to opt out, `START`
-to opt back in, or `HELP` for help.
+to opt back in, or `HELP` for help. See [PRIVACY.md](PRIVACY.md).
 
 ## Settings (GitHub repo > Settings > Secrets and variables > Actions)
 
