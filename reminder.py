@@ -257,10 +257,6 @@ def send_sms(sid, token, sender, to, body):
         return False, f"network error: {err}"
 
 
-def mask(number):
-    return "***" + number[-4:]
-
-
 def deliver(body):
     missing = [k for k in ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM", "RECIPIENTS")
                if not os.environ.get(k, "").strip()]
@@ -270,10 +266,10 @@ def deliver(body):
     recipients = parse_recipients(os.environ["RECIPIENTS"])
     sender = parse_recipients(os.environ["TWILIO_FROM"])[0]
     failures = 0
-    for to in recipients:
+    for index, to in enumerate(recipients, start=1):
         ok, detail = send_sms(os.environ["TWILIO_ACCOUNT_SID"].strip(),
                               os.environ["TWILIO_AUTH_TOKEN"].strip(), sender, to, body)
-        print(f"{mask(to)}: {detail}")
+        print(f"Recipient {index}: {detail}")
         failures += 0 if ok else 1
     return 1 if failures else 0
 
