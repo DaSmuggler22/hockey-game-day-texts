@@ -1,0 +1,58 @@
+name: Game day reminder
+
+on:
+  schedule:
+    # 9:07 AM Mountain. GitHub schedules are in UTC, so there are two lines:
+    # one is 9 AM during daylight time, the other during standard time.
+    # reminder.py only sends on whichever one is 9 AM that day.
+    - cron: "7 15 * * *"
+    - cron: "7 16 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "preview = show the message only, test = send a short test text, send = send today's reminder now"
+        type: choice
+        options: [preview, test, send]
+        default: preview
+      for_date:
+        description: "Optional: preview another date (YYYY-MM-DD)"
+        required: false
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: game-day-reminder
+  cancel-in-progress: false
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Send the reminder
+        env:
+          TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+          TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+          TWILIO_FROM: ${{ secrets.TWILIO_FROM }}
+          RECIPIENTS: ${{ secrets.RECIPIENTS }}
+          MODE: ${{ inputs.mode || 'send' }}
+          FOR_DATE: ${{ inputs.for_date }}
+          SCHEDULE_CRON: ${{ github.event.schedule }}
+        run: python reminder.py
+
+      # GitHub switches off scheduled workflows in repos with no activity for
+      # 60 days (the summer off-season). Re-enabling keeps this one alive.
+      - name: Keep the schedule alive
+        if: github.event_name == 'schedule'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/game-day.yml/enable"
