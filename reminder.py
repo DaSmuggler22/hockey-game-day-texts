@@ -1,37 +1,33 @@
 #!/usr/bin/env python3
-"""Game-day text reminders for the Flyers and the Stars.
+"""Game-day reminders for the Flyers and the Stars.
 
-Runs once a morning (see .github/workflows/game-day.yml). If either team plays
-today (Mountain time), it texts everyone in RECIPIENTS through Twilio:
+Runs every morning (see .github/workflows/game-day.yml). If either team plays
+today (Mountain time), it writes the day's message to days/YYYY-MM-DD.txt:
 opponent, puck drop in Mountain time, anything special about the game, the
 season record, one player to watch, and the next game coming up.
 
+An iPhone Shortcut reads that file at 9 AM and texts it to the group chat.
+On days with no game there is no file, so nothing is sent.
+
 No third-party packages: standard library only.
 
-Settings come from environment variables (GitHub secrets):
-  TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN   Twilio credentials
-  TWILIO_FROM                             the Twilio number that sends
-  RECIPIENTS                              phone numbers, comma separated
-Optional:
-  MODE            send (default) | preview (print only) | test (send a short test text)
-  FOR_DATE        YYYY-MM-DD, pretend today is this date (for previews)
-  SCHEDULE_CRON   the cron line that started this run (set by the workflow)
+Optional environment variables:
+  MODE       publish (default) | preview (print only, write nothing)
+  FOR_DATE   YYYY-MM-DD, pretend today is this date
 """
 
-import base64
 import json
 import os
-import re
 import sys
 import time
 import urllib.error
-import urllib.parse
 import urllib.request
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 LOCAL_TZ = ZoneInfo("America/Denver")
-SEND_HOUR_LOCAL = 9  # 9 AM Mountain
+OUT_DIR = Path(__file__).resolve().parent / "days"
 
 TEAMS = {
     "PHI": {"name": "Flyers", "badge": "\U0001F7E0"},  # orange circle
@@ -39,10 +35,6 @@ TEAMS = {
 }
 
 NHL_API = "https://api-web.nhle.com/v1"
-FOOTER = "Reply STOP to quit, START to rejoin."
-
-# Twilio error codes that mean "this person opted out", not "something broke".
-OPTED_OUT_CODES = {21610}
 
 
 # ---------------------------------------------------------------- NHL data
@@ -217,103 +209,42 @@ def build_message(today):
         blocks = [head_to_head_block(next(iter(todays.values())), schedules, today)]
     else:
         blocks = [team_block(a, g, schedules[a], today) for a, g in todays.items()]
-    return "\n\n".join(blocks + [FOOTER])
+    return "\n\n".join(blocks)
 
 
-# ------------------------------------------------------------------ Twilio
+# ----------------------------------------------------------------- publish
 
-def parse_recipients(raw):
-    numbers = []
-    for part in re.split(r"[,;\n]+", raw or ""):
-        digits = re.sub(r"\D", "", part)
-        if not digits:
-            continue
-        if len(digits) == 10:
-            digits = "1" + digits
-        number = "+" + digits
-        if number not in numbers:
-            numbers.append(number)
-    return numbers
-
-
-def send_sms(sid, token, sender, to, body):
-    """Returns (ok, detail). Never raises for a Twilio-side rejection."""
-    url = f"https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json"
-    data = urllib.parse.urlencode({"To": to, "From": sender, "Body": body}).encode()
-    auth = base64.b64encode(f"{sid}:{token}".encode()).decode()
-    req = urllib.request.Request(url, data=data, headers={"Authorization": f"Basic {auth}"})
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return True, json.load(resp).get("status", "queued")
-    except urllib.error.HTTPError as err:
-        try:
-            info = json.load(err)
-        except (json.JSONDecodeError, ValueError):
-            info = {}
-        if info.get("code") in OPTED_OUT_CODES:
-            return True, "skipped (they replied STOP)"
-        return False, f"Twilio error {info.get('code', err.code)}: {info.get('message', err.reason)}"
-    except (urllib.error.URLError, TimeoutError) as err:
-        return False, f"network error: {err}"
-
-
-def deliver(body):
-    missing = [k for k in ("TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN", "TWILIO_FROM", "RECIPIENTS")
-               if not os.environ.get(k, "").strip()]
-    if missing:
-        print("Missing settings: " + ", ".join(missing))
-        return 1
-    recipients = parse_recipients(os.environ["RECIPIENTS"])
-    sender = parse_recipients(os.environ["TWILIO_FROM"])[0]
-    failures = 0
-    for index, to in enumerate(recipients, start=1):
-        ok, detail = send_sms(os.environ["TWILIO_ACCOUNT_SID"].strip(),
-                              os.environ["TWILIO_AUTH_TOKEN"].strip(), sender, to, body)
-        print(f"Recipient {index}: {detail}")
-        failures += 0 if ok else 1
-    return 1 if failures else 0
-
-
-# -------------------------------------------------------------------- main
-
-def is_right_slot(now_utc, cron):
-    """The workflow fires at two UTC hours so one of them is always 9 AM
-    Mountain, summer or winter. Only the matching one should send."""
-    if not cron:
-        return True  # started by hand
-    fields = cron.split()
-    if len(fields) < 2 or not fields[1].isdigit():
-        return True
-    offset_hours = now_utc.astimezone(LOCAL_TZ).utcoffset() // timedelta(hours=1)  # -7 or -6
-    return int(fields[1]) == SEND_HOUR_LOCAL - offset_hours
+def publish(today, message):
+    """Write today's file (if there is a game) and clear out older ones."""
+    OUT_DIR.mkdir(exist_ok=True)
+    todays_file = OUT_DIR / f"{today.isoformat()}.txt"
+    for old in OUT_DIR.glob("*.txt"):
+        if old.name < todays_file.name:
+            old.unlink()
+    if message is None:
+        if todays_file.exists():  # game was postponed after an earlier run
+            todays_file.unlink()
+        return None
+    todays_file.write_text(message + "\n", encoding="utf-8")
+    return todays_file
 
 
 def main():
-    mode = (os.environ.get("MODE") or "send").strip().lower()
-    now_utc = datetime.now(timezone.utc)
-
-    if mode == "test":
-        return deliver("Hockey reminders are set up. You'll get a text on Flyers and "
-                       "Stars game days around 9 AM Mountain.\n\n" + FOOTER)
-
-    if mode == "send" and not is_right_slot(now_utc, os.environ.get("SCHEDULE_CRON", "").strip()):
-        print("Not the 9 AM Mountain slot. Nothing to do.")
-        return 0
-
+    mode = (os.environ.get("MODE") or "publish").strip().lower()
     override = (os.environ.get("FOR_DATE") or "").strip()
-    today = date.fromisoformat(override) if override else now_utc.astimezone(LOCAL_TZ).date()
+    today = date.fromisoformat(override) if override else datetime.now(timezone.utc).astimezone(LOCAL_TZ).date()
 
     message = build_message(today)
-    if message is None:
-        print(f"No Flyers or Stars game on {today}.")
-        return 0
-
-    print(message)
-    print("-" * 40)
+    print(message if message else f"No Flyers or Stars game on {today}.")
     if mode == "preview":
-        print("Preview only, nothing sent.")
+        print("-" * 40)
+        print("Preview only, nothing written.")
         return 0
-    return deliver(message)
+    written = publish(today, message)
+    if written:
+        print("-" * 40)
+        print(f"Wrote days/{written.name}")
+    return 0
 
 
 if __name__ == "__main__":
