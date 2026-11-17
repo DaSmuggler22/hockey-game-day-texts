@@ -2,13 +2,13 @@
 """Game-day reminders for the Flyers and the Stars.
 
 Runs hourly (see .github/workflows/game-day.yml). For each day in the coming
-week that either team plays (Mountain time), it writes that day's message to
-days/YYYY-MM-DD.txt and keeps it up to date:
-opponent, puck drop in Mountain time, anything special about the game, the
-season record, one player to watch, and the next game coming up.
+week that either team plays (Mountain time), it writes that day's message
+into schedule.json, keyed by date: opponent, puck drop in Mountain time,
+anything special about the game, the season record, one player to watch, and
+the next game coming up.
 
-An iPhone Shortcut reads that file at 9 AM and texts it to the group chat.
-On days with no game there is no file, so nothing is sent.
+An iPhone Shortcut reads schedule.json at 9 AM and texts today's entry to the
+group chat. Days with no game have no entry, so nothing is sent.
 
 No third-party packages: standard library only.
 
@@ -28,8 +28,8 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 LOCAL_TZ = ZoneInfo("America/Denver")
-OUT_DIR = Path(__file__).resolve().parent / "days"
-DAYS_AHEAD = 6  # files are prepared this many days in advance
+OUT_FILE = Path(__file__).resolve().parent / "schedule.json"
+DAYS_AHEAD = 6  # messages are prepared this many days in advance
 
 TEAMS = {
     "PHI": {"name": "Flyers", "badge": "\U0001F7E0"},  # orange circle
@@ -223,22 +223,16 @@ def build_message(today):
 # ----------------------------------------------------------------- publish
 
 def publish(today):
-    """Write a file for each game day from today through the look-ahead
-    window, and remove files that are past or no longer have a game."""
-    OUT_DIR.mkdir(exist_ok=True)
-    window = [today + timedelta(days=n) for n in range(DAYS_AHEAD + 1)]
-    wanted = {}
-    for day in window:
+    """Write schedule.json: one entry per game day from today through the
+    look-ahead window, keyed by date. Days without a game have no entry."""
+    schedule = {}
+    for n in range(DAYS_AHEAD + 1):
+        day = today + timedelta(days=n)
         message = build_message(day)
         if message:
-            wanted[f"{day.isoformat()}.txt"] = message + "\n"
-    last = f"{window[-1].isoformat()}.txt"
-    for old in OUT_DIR.glob("*.txt"):
-        if old.name <= last and old.name not in wanted:
-            old.unlink()
-    for name, text in wanted.items():
-        (OUT_DIR / name).write_text(text, encoding="utf-8")
-    return sorted(wanted)
+            schedule[day.isoformat()] = message
+    OUT_FILE.write_text(json.dumps(schedule, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return schedule
 
 
 def main():
@@ -253,12 +247,11 @@ def main():
         print("Preview only, nothing written.")
         return 0
 
-    written = publish(today)
-    print("Game days in the next week: " + (", ".join(n[:-4] for n in written) or "none"))
-    todays = OUT_DIR / f"{today.isoformat()}.txt"
-    if todays.exists():
+    schedule = publish(today)
+    print("Game days in the next week: " + (", ".join(schedule) or "none"))
+    if today.isoformat() in schedule:
         print("-" * 40)
-        print(todays.read_text(encoding="utf-8"))
+        print(schedule[today.isoformat()])
     return 0
 
 

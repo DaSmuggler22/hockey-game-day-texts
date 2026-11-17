@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "preview = show the message only, publish = write the coming week's message files"
+        description: "preview = show the message only, publish = update schedule.json"
         type: choice
         options: [preview, publish]
         default: preview
@@ -46,7 +46,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A days 2>/dev/null || true
+          git add -A schedule.json
           if git diff --cached --quiet; then
             echo "Nothing new to publish."
           else
