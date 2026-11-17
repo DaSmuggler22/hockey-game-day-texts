@@ -29,6 +29,7 @@ from zoneinfo import ZoneInfo
 
 LOCAL_TZ = ZoneInfo("America/Denver")
 OUT_FILE = Path(__file__).resolve().parent / "schedule.json"
+WATCH_POOL = 5  # the player to watch rotates through this many top scorers
 DAYS_AHEAD = 6  # messages are prepared this many days in advance
 
 TEAMS = {
@@ -78,8 +79,9 @@ def team_record(abbrev):
     return None
 
 
-def player_to_watch(abbrev):
-    """The team's points leader, e.g. 'Jason Robertson (21 pts)'."""
+def player_to_watch(abbrev, turn=0):
+    """One of the team's top scorers, e.g. 'Jason Robertson (21 pts)'.
+    `turn` picks whose turn it is, so the name changes from game to game."""
     try:
         skaters = fetch_json(f"{NHL_API}/club-stats/{abbrev}/now").get("skaters", [])
     except RuntimeError:
@@ -87,9 +89,17 @@ def player_to_watch(abbrev):
     skaters = [s for s in skaters if s.get("points")]
     if not skaters:
         return None
-    top = max(skaters, key=lambda s: (s.get("points", 0), s.get("goals", 0)))
-    name = f"{top['firstName']['default']} {top['lastName']['default']}"
-    return f"{name} ({top['points']} pts)"
+    skaters.sort(key=lambda s: (-s.get("points", 0), -s.get("goals", 0), s.get("playerId", 0)))
+    top = skaters[:WATCH_POOL]
+    pick = top[turn % len(top)]
+    name = f"{pick['firstName']['default']} {pick['lastName']['default']}"
+    return f"{name} ({pick['points']} pts)"
+
+
+def game_number(games, game):
+    """Where this game falls in the team's season, used to rotate the player."""
+    ordered = sorted((g for g in games if is_playable(g)), key=start_local)
+    return next((i for i, g in enumerate(ordered) if g["id"] == game["id"]), 0)
 
 
 # ------------------------------------------------------------ game helpers
@@ -104,10 +114,12 @@ def is_playable(game):
     return game.get("gameScheduleState", "OK") == "OK"
 
 
-def fmt_time(dt):
+def fmt_time(dt, zone=True):
+    """'5 PM MST' or '5:30 PM MST'; zone=False leaves the time zone off."""
     hour = dt.hour % 12 or 12
     ampm = "AM" if dt.hour < 12 else "PM"
-    return f"{hour}:{dt.minute:02d} {ampm} {dt.tzname()}"  # MST or MDT
+    clock = f"{hour} {ampm}" if dt.minute == 0 else f"{hour}:{dt.minute:02d} {ampm}"
+    return f"{clock} {dt.tzname()}" if zone else clock  # MST or MDT
 
 
 def matchup(game, abbrev):
@@ -155,8 +167,12 @@ def next_game_line(games, abbrev, after):
         return None
     game = min(upcoming, key=start_local)
     local = start_local(game)
-    day = f"{local.strftime('%a')} {local.month}/{local.day}"
-    return f"Next: {day} {matchup(game, abbrev)}, {fmt_time(local)}"
+    # Within a week the weekday is enough; further out, give the date.
+    if (local.date() - after).days <= 6:
+        day = local.strftime("%a")
+    else:
+        day = f"{local.month}/{local.day}"
+    return f"Next: {day} {matchup(game, abbrev)}, {fmt_time(local, zone=False)}"
 
 
 # ----------------------------------------------------------------- message
@@ -170,7 +186,7 @@ def team_block(abbrev, game, games, today, header=None):
     record = team_record(abbrev)
     if record:
         lines.append(f"Record: {record}")
-    watch = player_to_watch(abbrev)
+    watch = player_to_watch(abbrev, game_number(games, game))
     if watch:
         lines.append(f"Watch: {watch}")
     upcoming = next_game_line(games, abbrev, today)
@@ -190,7 +206,8 @@ def head_to_head_block(game, schedules, today):
         if "play each other" not in note:  # the header already says so
             lines.append(f"Special: {note}")
     for abbrev, team in TEAMS.items():
-        bits = [b for b in (team_record(abbrev), player_to_watch(abbrev)) if b]
+        watch = player_to_watch(abbrev, game_number(schedules[abbrev], game))
+        bits = [b for b in (team_record(abbrev), watch) if b]
         if bits:
             lines.append(f"{team['name']}: " + ", watch ".join(bits))
     for abbrev, team in TEAMS.items():
