@@ -114,12 +114,11 @@ def is_playable(game):
     return game.get("gameScheduleState", "OK") == "OK"
 
 
-def fmt_time(dt, zone=True):
-    """'5 PM MST' or '5:30 PM MST'; zone=False leaves the time zone off."""
+def fmt_time(dt):
+    """Mountain time, no zone label: '5pm' or '5:30pm'."""
     hour = dt.hour % 12 or 12
-    ampm = "AM" if dt.hour < 12 else "PM"
-    clock = f"{hour} {ampm}" if dt.minute == 0 else f"{hour}:{dt.minute:02d} {ampm}"
-    return f"{clock} {dt.tzname()}" if zone else clock  # MST or MDT
+    ampm = "am" if dt.hour < 12 else "pm"
+    return f"{hour}{ampm}" if dt.minute == 0 else f"{hour}:{dt.minute:02d}{ampm}"
 
 
 def matchup(game, abbrev):
@@ -172,15 +171,14 @@ def next_game_line(games, abbrev, after):
         day = local.strftime("%a")
     else:
         day = f"{local.month}/{local.day}"
-    return f"Next: {day} {matchup(game, abbrev)}, {fmt_time(local, zone=False)}"
+    return f"Next: {day} {matchup(game, abbrev)} {fmt_time(local)}"
 
 
 # ----------------------------------------------------------------- message
 
 def team_block(abbrev, game, games, today, header=None):
     team = TEAMS[abbrev]
-    lines = [header or f"{team['badge']} {team['name'].upper()} GAME DAY"]
-    lines.append(f"{matchup(game, abbrev)}, {fmt_time(start_local(game))}")
+    lines = [header or f"{team['badge']} {team['name']} {matchup(game, abbrev)} {fmt_time(start_local(game))}"]
     for note in special_notes(game):
         lines.append(f"Special: {note}")
     record = team_record(abbrev)
@@ -200,8 +198,7 @@ def head_to_head_block(game, schedules, today):
     badges = "".join(t["badge"] for t in TEAMS.values())
     away = game["awayTeam"]["commonName"]["default"]
     home = game["homeTeam"]["commonName"]["default"]
-    lines = [f"{badges} FLYERS + STARS GAME DAY"]
-    lines.append(f"{away} at {home}, {fmt_time(start_local(game))}")
+    lines = [f"{badges} {away} at {home} {fmt_time(start_local(game))}"]
     for note in special_notes(game):
         if "play each other" not in note:  # the header already says so
             lines.append(f"Special: {note}")

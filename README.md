@@ -4,11 +4,10 @@ A personal project. On days the Flyers or the Stars play, a group chat gets
 one text around 9 AM Mountain:
 
 ```
-🟠 FLYERS GAME DAY
-at Oilers, 7:00 PM MST
+🟠 Flyers at Oilers 7pm
 Record: 4-10-5
-Watch: Trevor Zegras (14 pts)
-Next: Sat 11/14 at Blue Jackets, 5:00 PM MST
+Watch: Travis Konecny (15 pts)
+Next: Sat at Blue Jackets 5pm
 ```
 
 A `Special:` line appears for playoffs, preseason, outdoor or neutral-site
@@ -34,7 +33,7 @@ messages, mute the group chat on your phone (Hide Alerts).
 3. **Text**: `https://raw.githubusercontent.com/DaSmuggler22/hockey-game-day-texts/main/schedule.json`
 4. **Get Contents of URL**: the Text from step 3
 5. **Get Dictionary Value**: Value for the Formatted Date key in Contents of URL
-6. **If** Dictionary Value **contains** `GAME DAY`
+6. **If** Dictionary Value **has any value**
 7. **Send Message**: Dictionary Value, to the group. Show Compose Sheet off.
 8. **End If**
 
