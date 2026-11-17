@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Game-day reminders for the Flyers and the Stars.
 
-Runs every morning (see .github/workflows/game-day.yml). If either team plays
-today (Mountain time), it writes the day's message to days/YYYY-MM-DD.txt:
+Runs hourly (see .github/workflows/game-day.yml). For each day in the coming
+week that either team plays (Mountain time), it writes that day's message to
+days/YYYY-MM-DD.txt and keeps it up to date:
 opponent, puck drop in Mountain time, anything special about the game, the
 season record, one player to watch, and the next game coming up.
 
@@ -22,12 +23,13 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 LOCAL_TZ = ZoneInfo("America/Denver")
 OUT_DIR = Path(__file__).resolve().parent / "days"
+DAYS_AHEAD = 6  # files are prepared this many days in advance
 
 TEAMS = {
     "PHI": {"name": "Flyers", "badge": "\U0001F7E0"},  # orange circle
@@ -39,13 +41,19 @@ NHL_API = "https://api-web.nhle.com/v1"
 
 # ---------------------------------------------------------------- NHL data
 
+_CACHE = {}
+
+
 def fetch_json(url, tries=3):
+    if url in _CACHE:
+        return _CACHE[url]
     last = None
     for attempt in range(tries):
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "game-day-reminder"})
             with urllib.request.urlopen(req, timeout=30) as resp:
-                return json.load(resp)
+                _CACHE[url] = json.load(resp)
+                return _CACHE[url]
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as err:
             last = err
             time.sleep(3 * (attempt + 1))
@@ -214,19 +222,23 @@ def build_message(today):
 
 # ----------------------------------------------------------------- publish
 
-def publish(today, message):
-    """Write today's file (if there is a game) and clear out older ones."""
+def publish(today):
+    """Write a file for each game day from today through the look-ahead
+    window, and remove files that are past or no longer have a game."""
     OUT_DIR.mkdir(exist_ok=True)
-    todays_file = OUT_DIR / f"{today.isoformat()}.txt"
+    window = [today + timedelta(days=n) for n in range(DAYS_AHEAD + 1)]
+    wanted = {}
+    for day in window:
+        message = build_message(day)
+        if message:
+            wanted[f"{day.isoformat()}.txt"] = message + "\n"
+    last = f"{window[-1].isoformat()}.txt"
     for old in OUT_DIR.glob("*.txt"):
-        if old.name < todays_file.name:
+        if old.name <= last and old.name not in wanted:
             old.unlink()
-    if message is None:
-        if todays_file.exists():  # game was postponed after an earlier run
-            todays_file.unlink()
-        return None
-    todays_file.write_text(message + "\n", encoding="utf-8")
-    return todays_file
+    for name, text in wanted.items():
+        (OUT_DIR / name).write_text(text, encoding="utf-8")
+    return sorted(wanted)
 
 
 def main():
@@ -234,16 +246,19 @@ def main():
     override = (os.environ.get("FOR_DATE") or "").strip()
     today = date.fromisoformat(override) if override else datetime.now(timezone.utc).astimezone(LOCAL_TZ).date()
 
-    message = build_message(today)
-    print(message if message else f"No Flyers or Stars game on {today}.")
     if mode == "preview":
+        message = build_message(today)
+        print(message if message else f"No Flyers or Stars game on {today}.")
         print("-" * 40)
         print("Preview only, nothing written.")
         return 0
-    written = publish(today, message)
-    if written:
+
+    written = publish(today)
+    print("Game days in the next week: " + (", ".join(n[:-4] for n in written) or "none"))
+    todays = OUT_DIR / f"{today.isoformat()}.txt"
+    if todays.exists():
         print("-" * 40)
-        print(f"Wrote days/{written.name}")
+        print(todays.read_text(encoding="utf-8"))
     return 0
 
 

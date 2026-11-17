@@ -17,8 +17,8 @@ combined text. No game, no text.
 
 ## How it works
 
-1. Early each morning GitHub runs `reminder.py`. If there is a game, it writes
-   the message to `days/YYYY-MM-DD.txt`. Schedule, record and stats come from
+1. Every hour GitHub runs `reminder.py`. For each game day in the coming
+   week it writes the message to `days/YYYY-MM-DD.txt` and keeps it current. Schedule, record and stats come from
    the NHL's public feed, so it keeps working season after season.
 2. At 9 AM an iPhone Shortcut automation looks for today's file. If it exists,
    the phone sends its contents to the group chat as a normal text.
@@ -43,5 +43,5 @@ Run Immediately. Then add these actions in order:
 ## Trying it out
 
 Actions tab > **Game day reminder** > **Run workflow**. `preview` shows the
-message in the run log; `publish` writes today's file. Fill in a date like
+message in the run log; `publish` writes the coming week's files. Fill in a date like
 `2026-11-21` to try another day.

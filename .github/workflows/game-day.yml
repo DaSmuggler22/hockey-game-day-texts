@@ -2,14 +2,14 @@ name: Game day reminder
 
 on:
   schedule:
-    # Early morning Mountain time, twice, so a late or failed run has a backup.
-    # The iPhone Shortcut picks the message up at 9 AM.
-    - cron: "7 12 * * *"
-    - cron: "7 13 * * *"
+    # Hourly. GitHub often starts scheduled runs hours late, so each run
+    # prepares the coming week's messages; the iPhone Shortcut picks up
+    # today's at 9 AM.
+    - cron: "17 * * * *"
   workflow_dispatch:
     inputs:
       mode:
-        description: "preview = show the message only, publish = write today's message file"
+        description: "preview = show the message only, publish = write the coming week's message files"
         type: choice
         options: [preview, publish]
         default: preview
@@ -36,7 +36,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Build today's message
+      - name: Build the messages
         env:
           MODE: ${{ inputs.mode || 'publish' }}
           FOR_DATE: ${{ inputs.for_date }}
@@ -50,7 +50,7 @@ jobs:
           if git diff --cached --quiet; then
             echo "Nothing new to publish."
           else
-            git commit -m "Game day message"
+            git commit -m "Update game day messages"
             git push
           fi
 
